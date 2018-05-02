@@ -1,0 +1,1094 @@
+---
+title: "Monitoring Collaborative Learning Activities: Exploring the Differential Value of Collaborative Flow Patterns for Learning Analytics"
+subtitle: "Data analysis report"
+author: "M. J. Rodríguez-Triana, L. P. Prieto, A. Martínez-Monés, J. I. Asensio-Pérez and Y. Dimitriadis"
+date: "`r Sys.Date()`"
+abstract: "Collaborative learning flow patterns (CLFPs) encode solutions to recurrent pedagogical problems, which have been successfully applied to the design of learning experiences. However, the pedagogical knowledge encoded in these patterns has seldom been exploited in learning analytics (LA). This paper analyzes four of the most common CLFPs to extract the intrinsic constraints that lead to a successful collaborative learning activity, and use them to enhance existing LA solutions. To understand the added value of applying such codified knowledge in LA, we present evidence from five authentic case studies in which such constraints aided university teachers in monitoring complex collaborative scripts. The results not only illustrate quantitatively such added value but also unearth qualitative benefits, such as raising practitioners' awareness about how the current state of activities may affect future phases of the script. This report reproduces the data analyses reported in the paper."
+output: html_document
+---
+
+```{r setup, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message=FALSE)
+
+library(knitr)
+library(rmdformats)
+library(gsheet)
+library(ggplot2)
+library(caret)
+library(kableExtra)
+library(xtable)
+
+```
+
+---
+
+Please cite the paper as: Rodríguez-Triana, M. J., Prieto, L. P., Martínez-Monés, A., Asensio-Pérez, J. I., & Dimitriadis, Y. (2018). Monitoring Collaborative Learning Activities: Exploring the Differential Value of Collaborative Flow Patterns for Learning Analytics. In *Proceedings of the 18th IEEE International Conference on Advanced Learning Technologies* (ICALT18).
+
+
+```{r import}
+## Importing the data
+data1.raw <- read.csv(file="./data/CS1.csv", stringsAsFactors=FALSE)
+data2.raw <- read.csv(file="./data/CS2.csv", stringsAsFactors=FALSE)
+data3.raw <- read.csv(file="./data/CS3.csv", stringsAsFactors=FALSE)
+data4.raw <- read.csv(file="./data/CS4.csv", stringsAsFactors=FALSE)
+data5.raw <- read.csv(file="./data/CS5.csv", stringsAsFactors=FALSE)
+
+
+
+
+
+# Clean the tables, make better column names
+data1 <- data1.raw[3:19,1:17]
+names(data1)[10:17] <- c("Evidences.Detected", "Evidences.Real",
+                         "Evidences.Teacher", "Evidences.Useful",
+                         "Problems.Detected", "Problems.Real",
+                         "Problems.Teacher", "Problems.Useful")
+
+data2 <- data2.raw[2:31,1:17]
+names(data2)[10:17] <- c("Evidences.Detected", "Evidences.Real",
+                         "Evidences.Teacher", "Evidences.Useful",
+                         "Problems.Detected", "Problems.Real",
+                         "Problems.Teacher", "Problems.Useful")
+
+data3 <- data3.raw[2:16,1:17]
+names(data3)[9] <- "Students.or.groups.evaluated"
+names(data3)[10:17] <- c("Evidences.Detected", "Evidences.Real",
+                         "Evidences.Teacher", "Evidences.Useful",
+                         "Problems.Detected", "Problems.Real",
+                         "Problems.Teacher", "Problems.Useful")
+
+data4 <- data4.raw[2:19,1:17]
+names(data4)[10:17] <- c("Evidences.Detected", "Evidences.Real",
+                         "Evidences.Teacher", "Evidences.Useful",
+                         "Problems.Detected", "Problems.Real",
+                         "Problems.Teacher", "Problems.Useful")
+
+data5 <- data5.raw[2:55,1:17]
+names(data5)[10:17] <- c("Evidences.Detected", "Evidences.Real",
+                         "Evidences.Teacher", "Evidences.Useful",
+                         "Problems.Detected", "Problems.Real",
+                         "Problems.Teacher", "Problems.Useful")
+
+
+```
+
+# Case Study CS1
+## Building the 'teacher detector'
+
+
+```{r teacher1}
+getTeacherVals <- function(row){
+  if(as.numeric(row["Problems.Teacher"]) == as.numeric(row["Problems.Real"])){
+    row["Teacher.TP"] <- as.numeric(row["Problems.Teacher"])
+    row["Teacher.FP"] <- 0
+    row["Teacher.FN"] <- 0
+    row["Teacher.TN"] <- as.numeric(row["Students.or.groups.evaluated"]) - as.numeric(row["Problems.Teacher"])
+  }else if(as.numeric(row["Problems.Teacher"])>as.numeric(row["Problems.Real"])){
+    row["Teacher.TP"] <- as.numeric(row["Problems.Real"])
+    row["Teacher.FP"] <- as.numeric(row["Problems.Teacher"]) - as.numeric(row["Problems.Real"])
+    row["Teacher.FN"] <- 0
+    row["Teacher.TN"] <- as.numeric(row["Students.or.groups.evaluated"]) - as.numeric(row["Problems.Teacher"])
+  }else{
+    row["Teacher.TP"] <- as.numeric(row["Problems.Teacher"])
+    row["Teacher.FP"] <- 0
+    row["Teacher.FN"] <- as.numeric(row["Problems.Real"]) - as.numeric(row["Problems.Teacher"])
+    row["Teacher.TN"] <- as.numeric(row["Students.or.groups.evaluated"]) - as.numeric(row["Problems.Real"])
+  }
+
+  row["Total.Checks"] <- as.numeric(row["Students.or.groups.evaluated"])
+  # Accuracy
+  row["Teacher.Acc"] <- (as.numeric(row["Teacher.TP"])+as.numeric(row["Teacher.TN"]))/as.numeric(row["Total.Checks"])
+  #Sensitivity=Recall
+  row["Teacher.Sens"] <- as.numeric(row["Teacher.TP"])/(as.numeric(row["Teacher.TP"])+as.numeric(row["Teacher.FN"]))
+  #Specificity
+  row["Teacher.Spec"] <- as.numeric(row["Teacher.TN"])/(as.numeric(row["Teacher.FP"])+as.numeric(row["Teacher.TN"]))
+  #Precision
+  row["Teacher.Prec"] <- as.numeric(row["Teacher.TP"])/(as.numeric(row["Teacher.TP"])+as.numeric(row["Teacher.FP"]))
+  #F1
+  row["Teacher.F1"] <- 2/((1/as.numeric(row["Teacher.Sens"]))+(1/as.numeric(row["Teacher.Prec"])))
+  
+  return(row)
+  
+  
+}
+
+# Calculate the confusion matrix elements
+data1t <- as.data.frame(t(apply(data1, 1, getTeacherVals)))
+# Print the table using kable or xtable
+data1print <- data1t[,c("Phase","Activity","Indicators","Constraint.type",
+                        "Total.Checks","Teacher.Acc","Teacher.Sens","Teacher.Spec","Teacher.F1")]
+
+kable(data1print, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+If we sum up the values per activity, and then we do the grand total...
+
+```{r teacher1b}
+
+data1toagt <- data1t[,9:17]
+data1toagt$Act <- as.factor(c(rep("2.1", times=4),
+                                 rep("2.2", times=4),"2.3","3.1",
+                                 rep("3.2", times=2),
+                                 rep("3.3", times=2),
+                                 "3.4","3.5","3.6"))
+
+for(i in 1:9){
+  data1toagt[,i]<-as.numeric(as.character(data1toagt[,i]))
+}
+
+
+data1agt <- aggregate(data1toagt[,1:9], by=list(data1toagt$Act), FUN="sum")
+names(data1agt)[1] <- "Activity"
+data1agt$Activity <- as.character(data1agt$Activity)
+data1agt <- rbind(data1agt,c(Activity="Total",colSums(data1agt[,2:10])))
+
+# Calculate the proportion of real problems, activity vs. pattern
+data1toagtscript <- data1t[,8:17]
+for(i in 2:10){
+  data1toagtscript[,i]<-as.numeric(as.character(data1toagtscript[,i]))
+}
+data1agtscript <- aggregate(data1toagtscript[,2:10], by=list(data1toagtscript$Constraint.type), FUN="sum")
+#print(paste("Problems",data1agtscript[data1agtscript$Group.1=="activity","Problems.Real"],"activity -",data1agtscript[data1agtscript$Group.1=="pattern","Problems.Real"],"pattern"))
+#
+
+data1agt.vals <- as.data.frame(t(apply(data1agt, 1, getTeacherVals)))
+for(i in 2:20){
+  data1agt.vals[,i]<-as.numeric(as.character(data1agt.vals[,i]))
+}
+data1agt.vals$Prevalence <- data1agt.vals$Problems.Real/data1agt.vals$Total.Checks
+
+levels(data1agt.vals$Activity) <- c("Activity 2.1 Individual summaries", 
+                                    "Activity 2.2 Expert consensus",
+                                    "Activity 2.3 Workgroup report",
+                                    "Activity 3.1 Selection of methods",
+                                    "Activity 3.2 Poster development",
+                                    "Activity 3.3 Peer review",
+                                    "Activity 3.4 Posters presentation",
+                                    "Activity 3.5 Workgroup report",
+                                    "Activity 3.6 Peer evaluation",
+                                    "Total")
+
+data1printbt <- data1agt.vals[,c("Activity","Total.Checks","Prevalence","Teacher.Acc","Teacher.Prec",
+                               "Teacher.Sens","Teacher.Spec","Teacher.F1")]
+
+kable(data1printbt, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+#xtable(data1printbt)
+```
+
+
+## Building the 'pattern-aware detector'
+
+
+```{r basic1}
+getPatternVals <- function(row){
+  if(as.numeric(row["Problems.Detected"]) == as.numeric(row["Problems.Real"])){
+    row["Basic.TP"] <- as.numeric(row["Problems.Detected"])
+    row["Basic.FP"] <- 0
+    row["Basic.FN"] <- 0
+    row["Basic.TN"] <- as.numeric(row["Students.or.groups.evaluated"]) - as.numeric(row["Problems.Detected"])
+  }else if(as.numeric(row["Problems.Detected"])>as.numeric(row["Problems.Real"])){
+    row["Basic.TP"] <- as.numeric(row["Problems.Real"])
+    row["Basic.FP"] <- as.numeric(row["Problems.Detected"]) - as.numeric(row["Problems.Real"])
+    row["Basic.FN"] <- 0
+    row["Basic.TN"] <- as.numeric(row["Students.or.groups.evaluated"]) - as.numeric(row["Problems.Detected"])
+  }else{
+    row["Basic.TP"] <- as.numeric(row["Problems.Detected"])
+    row["Basic.FP"] <- 0
+    row["Basic.FN"] <- as.numeric(row["Problems.Real"]) - as.numeric(row["Problems.Detected"])
+    row["Basic.TN"] <- as.numeric(row["Students.or.groups.evaluated"]) - as.numeric(row["Problems.Real"])
+  }
+
+  row["Total.Checks"] <- as.numeric(row["Students.or.groups.evaluated"])
+  # Accuracy
+  row["Basic.Acc"] <- (as.numeric(row["Basic.TP"])+as.numeric(row["Basic.TN"]))/as.numeric(row["Total.Checks"])
+  #Sensitivity=Recall
+  row["Basic.Sens"] <- as.numeric(row["Basic.TP"])/(as.numeric(row["Basic.TP"])+as.numeric(row["Basic.FN"]))
+  #Specificity
+  row["Basic.Spec"] <- as.numeric(row["Basic.TN"])/(as.numeric(row["Basic.FP"])+as.numeric(row["Basic.TN"]))
+  #Precision
+  row["Basic.Prec"] <- as.numeric(row["Basic.TP"])/(as.numeric(row["Basic.TP"])+as.numeric(row["Basic.FP"]))
+  #F1
+  row["Basic.F1"] <- 2/((1/as.numeric(row["Basic.Sens"]))+(1/as.numeric(row["Basic.Prec"])))
+  
+  return(row)
+  
+  
+}
+
+# Calculate the confusion matrix elements
+data1pat <- as.data.frame(t(apply(data1, 1, getPatternVals)))
+# Print the table using kable or xtable
+data1patprint <- data1pat[,c("Phase","Activity","Indicators",
+                        "Total.Checks","Basic.Acc","Basic.Sens","Basic.Spec","Basic.F1")]
+
+kable(data1patprint, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+If we sum up the values per activity, and then we do the grand total...
+
+```{r basic1b}
+
+data1pattoagt <- data1pat[,c(9:17,8)]
+data1pattoagt$Act <- as.factor(c(rep("2.1", times=4),
+                                 rep("2.2", times=4),"2.3","3.1",
+                                 rep("3.2", times=2),
+                                 rep("3.3", times=2),
+                                 "3.4","3.5","3.6"))
+
+for(i in 1:9){
+  data1pattoagt[,i]<-as.numeric(as.character(data1pattoagt[,i]))
+}
+
+
+data1patagt <- aggregate(data1pattoagt[,1:9], by=list(data1pattoagt$Act), FUN="sum")
+names(data1patagt)[1] <- "Activity"
+data1patagt$Activity <- as.character(data1patagt$Activity)
+data1patagt <- rbind(data1patagt,c(Activity="Total",colSums(data1patagt[,2:10])))
+
+data1patagt.vals <- as.data.frame(t(apply(data1patagt, 1, getPatternVals)))
+for(i in 2:20){
+  data1patagt.vals[,i]<-as.numeric(as.character(data1patagt.vals[,i]))
+}
+data1patagt.vals$Prevalence <- data1patagt.vals$Problems.Real/data1patagt.vals$Total.Checks
+
+levels(data1patagt.vals$Activity) <- c("Activity 2.1 Individual summaries", 
+                                    "Activity 2.2 Expert consensus",
+                                    "Activity 2.3 Workgroup report",
+                                    "Activity 3.1 Selection of methods",
+                                    "Activity 3.2 Poster development",
+                                    "Activity 3.3 Peer review",
+                                    "Activity 3.4 Posters presentation",
+                                    "Activity 3.5 Workgroup report",
+                                    "Activity 3.6 Peer evaluation",
+                                    "Total")
+
+data1printpat <- data1patagt.vals[,c("Activity","Total.Checks","Prevalence","Basic.Acc","Basic.Prec",
+                               "Basic.Sens","Basic.Spec","Basic.F1")]
+
+kable(data1printpat, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+#xtable(data1printpat)
+```
+
+
+
+
+## Building the 'activity-aware detector'
+
+
+```{r conf1}
+
+# The values are calculated the same, only we take into account only activity constraint types
+data1acttoagt <- data1pattoagt[data1pattoagt$Constraint.type=='activity',]
+data1actagt <- aggregate(data1acttoagt[,1:9], by=list(data1acttoagt$Act), FUN="sum")
+names(data1actagt)[1] <- "Activity"
+data1actagt$Activity <- as.character(data1actagt$Activity)
+data1actagt <- rbind(data1actagt,c(Activity="Total",colSums(data1actagt[,2:10])))
+
+data1actagt.vals <- as.data.frame(t(apply(data1actagt, 1, getPatternVals)))
+for(i in 2:20){
+  data1actagt.vals[,i]<-as.numeric(as.character(data1actagt.vals[,i]))
+}
+data1actagt.vals$Prevalence <- data1actagt.vals$Problems.Real/data1actagt.vals$Total.Checks
+
+levels(data1actagt.vals$Activity) <- c("Activity 2.1 Individual summaries", 
+                                    "Activity 2.2 Expert consensus",
+                                    "Activity 2.3 Workgroup report",
+                                    "Activity 3.1 Selection of methods",
+                                    "Activity 3.2 Poster development",
+                                  #  "Activity 3.3 Peer review", # patterns only
+                                    "Activity 3.4 Posters presentation",
+                                    "Activity 3.5 Workgroup report",
+                                    "Activity 3.6 Peer evaluation",
+                                    "Total")
+
+data1printact <- data1actagt.vals[,c("Activity","Total.Checks","Prevalence","Basic.Acc","Basic.Prec",
+                               "Basic.Sens","Basic.Spec","Basic.F1")]
+
+kable(data1printact, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+#xtable(data1printact)
+
+
+```
+
+
+
+# Case Study CS2
+
+## Building the 'teacher detector'
+
+
+```{r teacher2}
+
+# Calculate the confusion matrix elements
+data2t <- as.data.frame(t(apply(data2, 1, getTeacherVals)))
+# Print the table using kable or xtable
+data2print <- data2t[,c("Phase","Activity","Indicators","Constraint.type",
+                        "Total.Checks","Teacher.Acc","Teacher.Sens","Teacher.Spec","Teacher.F1")]
+
+kable(data2print, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+If we sum up the values per activity, and then we do the grand total...
+
+```{r teacher2b}
+
+data2toagt <- data2t[,9:17]
+data2toagt$Act <- as.factor(c(rep("1.1", times=3),
+                                 rep("2.1", times=5),
+                                 rep("3.1", times=4),
+                                 rep("3.2", times=5),
+                                 rep("3.3", times=3),
+                                 rep("3.4", times=4),
+                                 rep("4.1", times=2),
+                                 rep("4.2", times=2),
+                                 rep("4.3", times=2)))
+
+for(i in 1:9){
+  data2toagt[,i]<-as.numeric(as.character(data2toagt[,i]))
+}
+
+
+data2agt <- aggregate(data2toagt[,1:9], by=list(data2toagt$Act), FUN="sum")
+names(data2agt)[1] <- "Activity"
+data2agt$Activity <- as.character(data2agt$Activity)
+data2agt <- rbind(data2agt,c(Activity="Total",colSums(data2agt[,2:10])))
+
+
+# Calculate the proportion of real problems, activity vs. pattern
+data2toagtscript <- data2t[,8:17]
+for(i in 2:10){
+  data2toagtscript[,i]<-as.numeric(as.character(data2toagtscript[,i]))
+}
+data2agtscript <- aggregate(data2toagtscript[,2:10], by=list(data2toagtscript$Constraint.type), FUN="sum")
+#print(paste("Problems",data2agtscript[data2agtscript$Group.1=="activity","Problems.Real"],"activity -",data2agtscript[data2agtscript$Group.1=="pattern","Problems.Real"],"pattern"))
+#
+
+
+data2agt.vals <- as.data.frame(t(apply(data2agt, 1, getTeacherVals)))
+for(i in 2:20){
+  data2agt.vals[,i]<-as.numeric(as.character(data2agt.vals[,i]))
+}
+data2agt.vals$Prevalence <- data2agt.vals$Problems.Real/data2agt.vals$Total.Checks
+
+levels(data2agt.vals$Activity) <- c("Activity 1.1 Individual research proposal", 
+                                    "Activity 2.1 Initial research proposal",
+                                    "Activity 3.1 Final research proposal",
+                                    "Activity 3.2 Development of the research plan",
+                                    "Activity 3.3 Peer review",
+                                    "Activity 3.4 Improvement of the proposals",
+                                    "Activity 4.1 Presentation of research proposals & plans",
+                                    "Activity 4.2 Peer evaluation",
+                                    "Activity 4.3 Workgroup report",
+                                    "Total")
+
+data2printbt <- data2agt.vals[,c("Activity","Total.Checks","Prevalence","Teacher.Acc","Teacher.Prec",
+                               "Teacher.Sens","Teacher.Spec","Teacher.F1")]
+
+kable(data2printbt, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+#xtable(data2printbt)
+```
+
+
+## Building the 'pattern-aware detector'
+
+
+```{r basic2}
+
+# Calculate the confusion matrix elements
+data2pat <- as.data.frame(t(apply(data2, 1, getPatternVals)))
+# Print the table using kable or xtable
+data2patprint <- data2pat[,c("Phase","Activity","Indicators",
+                        "Total.Checks","Basic.Acc","Basic.Sens","Basic.Spec","Basic.F1")]
+
+kable(data2print, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+If we sum up the values per activity, and then we do the grand total...
+
+```{r basic2b}
+
+data2pattoagt <- data2pat[,c(9:17,8)]
+data2pattoagt$Act <- as.factor(c(rep("1.1", times=3),
+                                 rep("2.1", times=5),
+                                 rep("3.1", times=4),
+                                 rep("3.2", times=5),
+                                 rep("3.3", times=3),
+                                 rep("3.4", times=4),
+                                 rep("4.1", times=2),
+                                 rep("4.2", times=2),
+                                 rep("4.3", times=2)))
+
+for(i in 1:9){
+  data2pattoagt[,i]<-as.numeric(as.character(data2pattoagt[,i]))
+}
+
+
+data2patagt <- aggregate(data2pattoagt[,1:9], by=list(data2pattoagt$Act), FUN="sum")
+names(data2patagt)[1] <- "Activity"
+data2patagt$Activity <- as.character(data2patagt$Activity)
+data2patagt <- rbind(data2patagt,c(Activity="Total",colSums(data2patagt[,2:10])))
+
+data2patagt.vals <- as.data.frame(t(apply(data2patagt, 1, getPatternVals)))
+for(i in 2:20){
+  data2patagt.vals[,i]<-as.numeric(as.character(data2patagt.vals[,i]))
+}
+data2patagt.vals$Prevalence <- data2patagt.vals$Problems.Real/data2patagt.vals$Total.Checks
+
+levels(data2patagt.vals$Activity) <- c("Activity 1.1 Individual research proposal", 
+                                    "Activity 2.1 Initial research proposal",
+                                    "Activity 3.1 Final research proposal",
+                                    "Activity 3.2 Development of the research plan",
+                                    "Activity 3.3 Peer review",
+                                    "Activity 3.4 Improvement of the proposals",
+                                    "Activity 4.1 Presentation of research proposals & plans",
+                                    "Activity 4.2 Peer evaluation",
+                                    "Activity 4.3 Workgroup report",
+                                    "Total")
+
+data2printpat <- data2patagt.vals[,c("Activity","Total.Checks","Prevalence","Basic.Acc","Basic.Prec",
+                               "Basic.Sens","Basic.Spec","Basic.F1")]
+
+kable(data2printpat, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+#xtable(data2printpat)
+```
+
+
+
+
+## Building the 'activity-aware detector'
+
+
+```{r conf2}
+
+# The values are calculated the same, only we take into account only activity constraint types
+data2acttoagt <- data2pattoagt[data2pattoagt$Constraint.type=='activity',]
+data2actagt <- aggregate(data2acttoagt[,1:9], by=list(data2acttoagt$Act), FUN="sum")
+names(data2actagt)[1] <- "Activity"
+data2actagt$Activity <- as.character(data2actagt$Activity)
+data2actagt <- rbind(data2actagt,c(Activity="Total",colSums(data2actagt[,2:10])))
+
+data2actagt.vals <- as.data.frame(t(apply(data2actagt, 1, getPatternVals)))
+for(i in 2:20){
+  data2actagt.vals[,i]<-as.numeric(as.character(data2actagt.vals[,i]))
+}
+data2actagt.vals$Prevalence <- data2actagt.vals$Problems.Real/data2actagt.vals$Total.Checks
+
+levels(data2actagt.vals$Activity) <- c("Activity 1.1 Individual research proposal", 
+                                    "Activity 2.1 Initial research proposal",
+                                    "Activity 3.1 Final research proposal",
+                                    "Activity 3.2 Development of the research plan",
+                                    "Activity 3.3 Peer review",
+                                    "Activity 3.4 Improvement of the proposals",
+                                    "Activity 4.1 Presentation of research proposals & plans",
+                                    "Activity 4.2 Peer evaluation",
+                                    "Activity 4.3 Workgroup report",
+                                    "Total")
+
+data2printact <- data2actagt.vals[,c("Activity","Total.Checks","Prevalence","Basic.Acc","Basic.Prec",
+                               "Basic.Sens","Basic.Spec","Basic.F1")]
+
+kable(data2printact, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+#xtable(data2printact)
+
+
+```
+
+# Case Study CS3
+
+
+
+## Building the 'teacher detector'
+
+
+```{r teacher3}
+
+# Calculate the confusion matrix elements
+data3t <- as.data.frame(t(apply(data3, 1, getTeacherVals)))
+# Print the table using kable or xtable
+data3print <- data3t[,c("Phase","Activity","Indicators","Constraint.type",
+                        "Total.Checks","Teacher.Acc","Teacher.Sens","Teacher.Spec","Teacher.F1")]
+
+kable(data3print, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+If we sum up the values per activity, and then we do the grand total...
+
+```{r teacher3b}
+
+data3toagt <- data3t[,9:17]
+data3toagt$Act <- as.factor(c(rep("1.1", times=4),
+                                 rep("1.2", times=3),
+                                 rep("2.1", times=3),
+                                 rep("2.2", times=3),
+                                 rep("2.3", times=2)))
+
+for(i in 1:9){
+  data3toagt[,i]<-as.numeric(as.character(data3toagt[,i]))
+}
+
+
+data3agt <- aggregate(data3toagt[,1:9], by=list(data3toagt$Act), FUN="sum")
+names(data3agt)[1] <- "Activity"
+data3agt$Activity <- as.character(data3agt$Activity)
+data3agt <- rbind(data3agt,c(Activity="Total",colSums(data3agt[,2:10])))
+
+# Calculate the proportion of real problems, activity vs. pattern
+data3toagtscript <- data3t[,8:17]
+for(i in 2:10){
+  data3toagtscript[,i]<-as.numeric(as.character(data3toagtscript[,i]))
+}
+data3agtscript <- aggregate(data3toagtscript[,2:10], by=list(data3toagtscript$Constraint.type), FUN="sum")
+#print(paste("Problems",data3agtscript[data3agtscript$Group.1=="activity","Problems.Real"],"activity -",data3agtscript[data3agtscript$Group.1=="pattern","Problems.Real"],"pattern"))
+#
+
+
+
+
+data3agt.vals <- as.data.frame(t(apply(data3agt, 1, getTeacherVals)))
+for(i in 2:20){
+  data3agt.vals[,i]<-as.numeric(as.character(data3agt.vals[,i]))
+}
+data3agt.vals$Prevalence <- data3agt.vals$Problems.Real/data3agt.vals$Total.Checks
+
+levels(data3agt.vals$Activity) <- c("Activity 1.1 Role-playing preparation", 
+                                    "Activity 1.2 Role-playing presentation",
+                                    "Activity 2.1 Peer-review",
+                                    "Activity 2.2 Answer to the reviewers",
+                                    "Activity 2.3 Workgroup report",
+                                    "Total")
+
+data3printbt <- data3agt.vals[,c("Activity","Total.Checks","Prevalence","Teacher.Acc","Teacher.Prec",
+                               "Teacher.Sens","Teacher.Spec","Teacher.F1")]
+
+kable(data3printbt, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+#xtable(data3printbt)
+```
+
+
+## Building the 'pattern-aware detector'
+
+
+```{r basic3}
+
+# Calculate the confusion matrix elements
+data3pat <- as.data.frame(t(apply(data3, 1, getPatternVals)))
+# Print the table using kable or xtable
+data3patprint <- data3pat[,c("Phase","Activity","Indicators",
+                        "Total.Checks","Basic.Acc","Basic.Sens","Basic.Spec","Basic.F1")]
+
+kable(data3print, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+If we sum up the values per activity, and then we do the grand total...
+
+```{r basic3b}
+
+data3pattoagt <- data3pat[,c(9:17,8)]
+data3pattoagt$Act <- as.factor(c(rep("1.1", times=4),
+                                 rep("1.2", times=3),
+                                 rep("2.1", times=3),
+                                 rep("2.2", times=3),
+                                 rep("2.3", times=2)))
+
+for(i in 1:9){
+  data3pattoagt[,i]<-as.numeric(as.character(data3pattoagt[,i]))
+}
+
+
+data3patagt <- aggregate(data3pattoagt[,1:9], by=list(data3pattoagt$Act), FUN="sum")
+names(data3patagt)[1] <- "Activity"
+data3patagt$Activity <- as.character(data3patagt$Activity)
+data3patagt <- rbind(data3patagt,c(Activity="Total",colSums(data3patagt[,2:10])))
+
+data3patagt.vals <- as.data.frame(t(apply(data3patagt, 1, getPatternVals)))
+for(i in 2:20){
+  data3patagt.vals[,i]<-as.numeric(as.character(data3patagt.vals[,i]))
+}
+data3patagt.vals$Prevalence <- data3patagt.vals$Problems.Real/data3patagt.vals$Total.Checks
+
+levels(data3patagt.vals$Activity) <- c("Activity 1.1 Role-playing preparation", 
+                                    "Activity 1.2 Role-playing presentation",
+                                    "Activity 2.1 Peer-review",
+                                    "Activity 2.2 Answer to the reviewers",
+                                    "Activity 2.3 Workgroup report",
+                                    "Total")
+
+data3printpat <- data3patagt.vals[,c("Activity","Total.Checks","Prevalence","Basic.Acc","Basic.Prec",
+                               "Basic.Sens","Basic.Spec","Basic.F1")]
+
+kable(data3printpat, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+#xtable(data3printpat)
+```
+
+
+
+
+## Building the 'activity-aware detector'
+
+
+```{r conf3}
+
+# The values are calculated the same, only we take into account only activity constraint types
+data3acttoagt <- data3pattoagt[data3pattoagt$Constraint.type=='activity',]
+data3actagt <- aggregate(data3acttoagt[,1:9], by=list(data3acttoagt$Act), FUN="sum")
+names(data3actagt)[1] <- "Activity"
+data3actagt$Activity <- as.character(data3actagt$Activity)
+data3actagt <- rbind(data3actagt,c(Activity="Total",colSums(data3actagt[,2:10])))
+
+data3actagt.vals <- as.data.frame(t(apply(data3actagt, 1, getPatternVals)))
+for(i in 2:20){
+  data3actagt.vals[,i]<-as.numeric(as.character(data3actagt.vals[,i]))
+}
+data3actagt.vals$Prevalence <- data3actagt.vals$Problems.Real/data3actagt.vals$Total.Checks
+
+levels(data3actagt.vals$Activity) <- c("Activity 1.1 Role-playing preparation", 
+                                    "Activity 1.2 Role-playing presentation",
+                                    "Activity 2.1 Peer-review",
+                                    "Activity 2.2 Answer to the reviewers",
+                                    "Activity 2.3 Workgroup report",
+                                    "Total")
+
+data3printact <- data3actagt.vals[,c("Activity","Total.Checks","Prevalence","Basic.Acc","Basic.Prec",
+                               "Basic.Sens","Basic.Spec","Basic.F1")]
+
+kable(data3printact, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+#xtable(data3printact)
+
+
+```
+
+
+
+# Case Study CS4
+
+
+## Building the 'teacher detector'
+
+
+```{r teacher4}
+
+# Calculate the confusion matrix elements
+data4t <- as.data.frame(t(apply(data4, 1, getTeacherVals)))
+# Print the table using kable or xtable
+data4print <- data4t[,c("Phase","Activity","Indicators","Constraint.type",
+                        "Total.Checks","Teacher.Acc","Teacher.Sens","Teacher.Spec","Teacher.F1")]
+
+kable(data4print, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+If we sum up the values per activity, and then we do the grand total...
+
+```{r teacher4b}
+
+data4toagt <- data4t[,9:17]
+data4toagt$Act <- as.factor(c(rep("1.1", times=4),
+                                 rep("1.2", times=5),
+                                 rep("2.1", times=5),
+                                 rep("3.1", times=4)))
+
+for(i in 1:9){
+  data4toagt[,i]<-as.numeric(as.character(data4toagt[,i]))
+}
+
+
+data4agt <- aggregate(data4toagt[,1:9], by=list(data4toagt$Act), FUN="sum")
+names(data4agt)[1] <- "Activity"
+data4agt$Activity <- as.character(data4agt$Activity)
+data4agt <- rbind(data4agt,c(Activity="Total",colSums(data4agt[,2:10])))
+
+# Calculate the proportion of real problems, activity vs. pattern
+data4toagtscript <- data4t[,8:17]
+for(i in 2:10){
+  data4toagtscript[,i]<-as.numeric(as.character(data4toagtscript[,i]))
+}
+data4agtscript <- aggregate(data4toagtscript[,2:10], by=list(data4toagtscript$Constraint.type), FUN="sum")
+#print(paste("Problems",data4agtscript[data4agtscript$Group.1=="activity","Problems.Real"],"activity -",data4agtscript[data4agtscript$Group.1=="pattern","Problems.Real"],"pattern"))
+#
+
+
+
+data4agt.vals <- as.data.frame(t(apply(data4agt, 1, getTeacherVals)))
+for(i in 2:20){
+  data4agt.vals[,i]<-as.numeric(as.character(data4agt.vals[,i]))
+}
+data4agt.vals$Prevalence <- data4agt.vals$Problems.Real/data4agt.vals$Total.Checks
+
+levels(data4agt.vals$Activity) <- c("Activity 1.1 Law review", 
+                                    "Activity 1.2 Individual report on the law review",
+                                    "Activity 2.1 Subproblem discussion",
+                                    "Activity 3.1 Solution proposal",
+                                    "Total")
+
+data4printbt <- data4agt.vals[,c("Activity","Total.Checks","Prevalence","Teacher.Acc","Teacher.Prec",
+                               "Teacher.Sens","Teacher.Spec","Teacher.F1")]
+
+kable(data4printbt, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+#xtable(data4printbt)
+```
+
+
+## Building the 'pattern-aware detector'
+
+
+```{r basic4}
+
+# Calculate the confusion matrix elements
+data4pat <- as.data.frame(t(apply(data4, 1, getPatternVals)))
+# Print the table using kable or xtable
+data4patprint <- data4pat[,c("Phase","Activity","Indicators",
+                        "Total.Checks","Basic.Acc","Basic.Sens","Basic.Spec","Basic.F1")]
+
+#kable(data4print, "html") %>%
+#  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+If we sum up the values per activity, and then we do the grand total...
+
+```{r basic4b}
+
+data4pattoagt <- data4pat[,c(9:17,8)]
+data4pattoagt$Act <- as.factor(c(rep("1.1", times=4),
+                                 rep("1.2", times=5),
+                                 rep("2.1", times=5),
+                                 rep("3.1", times=4)))
+
+for(i in 1:9){
+  data4pattoagt[,i]<-as.numeric(as.character(data4pattoagt[,i]))
+}
+
+
+data4patagt <- aggregate(data4pattoagt[,1:9], by=list(data4pattoagt$Act), FUN="sum")
+names(data4patagt)[1] <- "Activity"
+data4patagt$Activity <- as.character(data4patagt$Activity)
+data4patagt <- rbind(data4patagt,c(Activity="Total",colSums(data4patagt[,2:10])))
+
+data4patagt.vals <- as.data.frame(t(apply(data4patagt, 1, getPatternVals)))
+for(i in 2:20){
+  data4patagt.vals[,i]<-as.numeric(as.character(data4patagt.vals[,i]))
+}
+data4patagt.vals$Prevalence <- data4patagt.vals$Problems.Real/data4patagt.vals$Total.Checks
+
+levels(data4patagt.vals$Activity) <- c("Activity 1.1 Law review", 
+                                    "Activity 1.2 Individual report on the law review",
+                                    "Activity 2.1 Subproblem discussion",
+                                    "Activity 3.1 Solution proposal",
+                                    "Total")
+
+data4printpat <- data4patagt.vals[,c("Activity","Total.Checks","Prevalence","Basic.Acc","Basic.Prec",
+                               "Basic.Sens","Basic.Spec","Basic.F1")]
+
+kable(data4printpat, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+#xtable(data4printpat)
+```
+
+
+
+
+## Building the 'activity-aware detector'
+
+
+```{r conf4}
+
+# The values are calculated the same, only we take into account only activity constraint types
+data4acttoagt <- data4pattoagt[data4pattoagt$Constraint.type=='activity',]
+data4actagt <- aggregate(data4acttoagt[,1:9], by=list(data4acttoagt$Act), FUN="sum")
+names(data4actagt)[1] <- "Activity"
+data4actagt$Activity <- as.character(data4actagt$Activity)
+data4actagt <- rbind(data4actagt,c(Activity="Total",colSums(data4actagt[,2:10])))
+
+data4actagt.vals <- as.data.frame(t(apply(data4actagt, 1, getPatternVals)))
+for(i in 2:20){
+  data4actagt.vals[,i]<-as.numeric(as.character(data4actagt.vals[,i]))
+}
+data4actagt.vals$Prevalence <- data4actagt.vals$Problems.Real/data4actagt.vals$Total.Checks
+
+levels(data4actagt.vals$Activity) <- c("Activity 1.1 Law review", 
+                                    "Activity 1.2 Individual report on the law review",
+                                    "Activity 2.1 Subproblem discussion",
+                                    "Activity 3.1 Solution proposal",
+                                    "Total")
+
+data4printact <- data4actagt.vals[,c("Activity","Total.Checks","Prevalence","Basic.Acc","Basic.Prec",
+                               "Basic.Sens","Basic.Spec","Basic.F1")]
+
+kable(data4printact, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+#xtable(data4printact)
+
+
+```
+
+
+# Case Study CS5
+
+
+
+## Building the 'teacher detector'
+
+
+```{r teacher5}
+
+# Calculate the confusion matrix elements
+data5t <- as.data.frame(t(apply(data5, 1, getTeacherVals)))
+# Print the table using kable or xtable
+data5print <- data5t[,c("Phase","Activity","Indicators","Constraint.type",
+                        "Total.Checks","Teacher.Acc","Teacher.Sens","Teacher.Spec","Teacher.F1")]
+
+kable(data5print, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+If we sum up the values per activity, and then we do the grand total...
+
+```{r teacher5b}
+
+data5toagt <- data5t[,9:17]
+data5toagt$Act <- as.factor(c(rep("1.1", times=4),
+                                 rep("2.1", times=21),
+                                 rep("3.1", times=6),
+                                 rep("3.2", times=5),
+                                 rep("3.3", times=5),
+                                 rep("3.4", times=3),
+                                 rep("3.5", times=5),
+                                 rep("4.1", times=2),
+                                 rep("4.2", times=3)))
+
+for(i in 1:9){
+  data5toagt[,i]<-as.numeric(as.character(data5toagt[,i]))
+}
+
+
+data5agt <- aggregate(data5toagt[,1:9], by=list(data5toagt$Act), FUN="sum")
+names(data5agt)[1] <- "Activity"
+data5agt$Activity <- as.character(data5agt$Activity)
+data5agt <- rbind(data5agt,c(Activity="Total",colSums(data5agt[,2:10])))
+
+
+# Calculate the proportion of real problems, activity vs. pattern
+data5toagtscript <- data5t[,8:17]
+for(i in 2:10){
+  data5toagtscript[,i]<-as.numeric(as.character(data5toagtscript[,i]))
+}
+data5agtscript <- aggregate(data5toagtscript[,2:10], by=list(data5toagtscript$Constraint.type), FUN="sum")
+#print(paste("Problems",data5agtscript[data5agtscript$Group.1=="activity","Problems.Real"],"activity -",data5agtscript[data5agtscript$Group.1=="pattern","Problems.Real"],"pattern"))
+#
+
+
+data5agt.vals <- as.data.frame(t(apply(data5agt, 1, getTeacherVals)))
+for(i in 2:20){
+  data5agt.vals[,i]<-as.numeric(as.character(data5agt.vals[,i]))
+}
+data5agt.vals$Prevalence <- data5agt.vals$Problems.Real/data5agt.vals$Total.Checks
+
+levels(data5agt.vals$Activity) <- c("Activity 1.1 Individual research proposal", 
+                                    "Activity 2.1 Initial research proposal",
+                                    "Activity 3.1 Final research proposal",
+                                    "Activity 3.2 Development of the research plan",
+                                    "Activity 3.3 Peer review",
+                                    "Activity 3.4 Answer to the reviewers",
+                                    "Activity 3.5 Improvement of the proposals",
+                                    "Activity 4.1 Presentation of research proposals & plans ",
+                                    "Activity 4.2 Peer evaluation",
+                                    "Total")
+
+data5printbt <- data5agt.vals[,c("Activity","Total.Checks","Prevalence","Teacher.Acc","Teacher.Prec",
+                               "Teacher.Sens","Teacher.Spec","Teacher.F1")]
+
+kable(data5printbt, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+#xtable(data5printbt)
+```
+
+
+## Building the 'pattern-aware detector'
+
+
+```{r basic5}
+
+# Calculate the confusion matrix elements
+data5pat <- as.data.frame(t(apply(data5, 1, getPatternVals)))
+# Print the table using kable or xtable
+data5patprint <- data5pat[,c("Phase","Activity","Indicators",
+                        "Total.Checks","Basic.Acc","Basic.Sens","Basic.Spec","Basic.F1")]
+
+kable(data5patprint, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+If we sum up the values per activity, and then we do the grand total...
+
+```{r basic5b}
+
+data5pattoagt <- data5pat[,c(9:17,8)]
+data5pattoagt$Act <- as.factor(c(rep("1.1", times=4),
+                                 rep("2.1", times=21),
+                                 rep("3.1", times=6),
+                                 rep("3.2", times=5),
+                                 rep("3.3", times=5),
+                                 rep("3.4", times=3),
+                                 rep("3.5", times=5),
+                                 rep("4.1", times=2),
+                                 rep("4.2", times=3)))
+
+for(i in 1:9){
+  data5pattoagt[,i]<-as.numeric(as.character(data5pattoagt[,i]))
+}
+
+
+data5patagt <- aggregate(data5pattoagt[,1:9], by=list(data5pattoagt$Act), FUN="sum")
+names(data5patagt)[1] <- "Activity"
+data5patagt$Activity <- as.character(data5patagt$Activity)
+data5patagt <- rbind(data5patagt,c(Activity="Total",colSums(data5patagt[,2:10])))
+
+data5patagt.vals <- as.data.frame(t(apply(data5patagt, 1, getPatternVals)))
+for(i in 2:20){
+  data5patagt.vals[,i]<-as.numeric(as.character(data5patagt.vals[,i]))
+}
+data5patagt.vals$Prevalence <- data5patagt.vals$Problems.Real/data5patagt.vals$Total.Checks
+
+levels(data5patagt.vals$Activity) <- c("Activity 1.1 Individual research proposal", 
+                                    "Activity 2.1 Initial research proposal",
+                                    "Activity 3.1 Final research proposal",
+                                    "Activity 3.2 Development of the research plan",
+                                    "Activity 3.3 Peer review",
+                                    "Activity 3.4 Answer to the reviewers",
+                                    "Activity 3.5 Improvement of the proposals",
+                                    "Activity 4.1 Presentation of research proposals & plans ",
+                                    "Activity 4.2 Peer evaluation",
+                                    "Total")
+
+data5printpat <- data5patagt.vals[,c("Activity","Total.Checks","Prevalence","Basic.Acc","Basic.Prec",
+                               "Basic.Sens","Basic.Spec","Basic.F1")]
+
+kable(data5printpat, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+#xtable(data5printpat)
+```
+
+
+
+
+## Building the 'activity-aware detector'
+
+
+```{r conf5}
+
+# The values are calculated the same, only we take into account only activity constraint types
+data5acttoagt <- data5pattoagt[data5pattoagt$Constraint.type=='activity',]
+data5actagt <- aggregate(data5acttoagt[,1:9], by=list(data5acttoagt$Act), FUN="sum")
+names(data5actagt)[1] <- "Activity"
+data5actagt$Activity <- as.character(data5actagt$Activity)
+data5actagt <- rbind(data5actagt,c(Activity="Total",colSums(data5actagt[,2:10])))
+
+data5actagt.vals <- as.data.frame(t(apply(data5actagt, 1, getPatternVals)))
+for(i in 2:20){
+  data5actagt.vals[,i]<-as.numeric(as.character(data5actagt.vals[,i]))
+}
+data5actagt.vals$Prevalence <- data5actagt.vals$Problems.Real/data5actagt.vals$Total.Checks
+
+levels(data5actagt.vals$Activity) <- c("Activity 1.1 Individual research proposal", 
+                                    "Activity 2.1 Initial research proposal",
+                                    "Activity 3.1 Final research proposal",
+                                    "Activity 3.2 Development of the research plan",
+                                    "Activity 3.3 Peer review",
+                                    "Activity 3.4 Answer to the reviewers",
+                                    "Activity 3.5 Improvement of the proposals",
+                                    "Activity 4.1 Presentation of research proposals & plans ",
+                                    "Activity 4.2 Peer evaluation",
+                                    "Total")
+
+data5printact <- data5actagt.vals[,c("Activity","Total.Checks","Prevalence","Basic.Acc","Basic.Prec",
+                               "Basic.Sens","Basic.Spec","Basic.F1")]
+
+kable(data5printact, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+#xtable(data5printact)
+
+
+```
+
+
+
+
+# Generating the table for the manuscript
+
+The data reported in the paper (Table III) is composed of the "Total" rows at the end of each of the per-case-study sections above
+
+```{r manuscript}
+# The code to generate the table should follow more or less the following structure:
+
+# tab <- as.data.frame(rbind(as.matrix(data1printbt[nrow(data1printbt),2:ncol(data1printbt)]),
+#              as.matrix(data1basprintbt[nrow(data1basprintbt),2:ncol(data1basprintbt)]),
+#              as.matrix(data1printb[nrow(data1printb),2:ncol(data1printb)]),
+#              as.matrix(data2printbt[nrow(data2printbt),2:ncol(data2printbt)]),
+#              as.matrix(data2basprintbt[nrow(data2basprintbt),2:ncol(data2basprintbt)]),
+#              as.matrix(data2printb[nrow(data2printb),2:ncol(data2printb)])))
+# 
+# tab <- cbind(Detector=c("CS1 - Teacher detector","CS1 - Basic MMLA detector",
+#                         "CS1 - Personalized MMLA detector","CS2 - Teacher detector",
+#                         "CS2 - Basic MMLA detector","CS2 - Personalized MMLA detector"),
+#              tab)
+# 
+# 
+# names(tab) <- c("Study - Detector", "Total indicator checks", "Problem prevalence", "Accuracy","Precision",
+#                 "Sensitivity", "Specificity", "F1 score")
+# 
+# kable(tab, "html") %>%
+#   kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+# 
+# 
+# xtable(tab,digits=c(0,0,0,3,3,3,3,3,3))
+```
